@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      # Default is SQLite on a persistent volume — zero external dependencies.
+      # Point this at Postgres instead for multi-instance / production deployments
+      # (change `provider` to "postgresql" in backend/prisma/schema.prisma first —
+      # the model definitions themselves are portable as-is).
+      DATABASE_URL: "file:/data/cfbs.db"
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-string}
+      JWT_EXPIRES_IN: "7d"
+      CORS_ORIGIN: "http://localhost:8080"
+    volumes:
+      - cfbs-data:/data
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  cfbs-data:

@@ -1,0 +1,260 @@
+// Cleaning & Facility Business Software — data model
+// Dev default is SQLite (zero-setup). Point DATABASE_URL at Postgres in
+// production. Enum-like fields are plain Strings (not Prisma `enum`) so the
+// same schema works unmodified on SQLite (which has no enum support) and
+// Postgres — the allowed values are enforced at the API layer, see
+// src/types/enums.ts and the zod schemas in each route file.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          String   @default("STAFF") // ADMIN | MANAGER | STAFF
+  active        Boolean  @default(true)
+  hourlyRate    Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdClients   Client[]        @relation("ClientCreatedBy")
+  createdJobs      Job[]           @relation("JobCreatedBy")
+  assignments      JobAssignment[]
+  timeEntries      TimeEntry[]
+  inspections      Inspection[]
+  activityLogs     ActivityLog[]
+}
+
+model Client {
+  id          String   @id @default(cuid())
+  name        String
+  companyName String?
+  email       String?
+  phone       String?
+  billingAddress String?
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?    @relation("ClientCreatedBy", fields: [createdById], references: [id])
+
+  properties  Property[]
+  jobs        Job[]
+  invoices    Invoice[]
+}
+
+model Property {
+  id             String       @id @default(cuid())
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name           String
+  type           String       @default("OFFICE") // see PropertyType in src/types/enums.ts
+  addressLine1   String
+  addressLine2   String?
+  city           String?
+  state          String?
+  zip            String?
+  squareFootage  Int?
+  numberOfRooms  Int?
+  accessNotes    String?
+  notes          String?
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  jobs           Job[]
+}
+
+model ServiceType {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String?
+  defaultDurationMinutes Int  @default(60)
+  defaultPrice  Float    @default(0)
+  createdAt     DateTime @default(now())
+
+  jobs          Job[]
+}
+
+model Job {
+  id             String      @id @default(cuid())
+  title          String
+  description    String?
+  clientId       String
+  client         Client      @relation(fields: [clientId], references: [id])
+  propertyId     String
+  property       Property    @relation(fields: [propertyId], references: [id])
+  serviceTypeId  String?
+  serviceType    ServiceType? @relation(fields: [serviceTypeId], references: [id])
+
+  status         String      @default("SCHEDULED") // see JobStatus in src/types/enums.ts
+  priority       String      @default("NORMAL")    // see JobPriority
+  recurrence     String      @default("NONE")      // see Recurrence
+  recurrenceEndDate DateTime?
+  parentJobId    String?
+  parentJob      Job?        @relation("JobRecurrence", fields: [parentJobId], references: [id])
+  childJobs      Job[]       @relation("JobRecurrence")
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  actualStart    DateTime?
+  actualEnd      DateTime?
+
+  price          Float       @default(0)
+
+  createdById    String?
+  createdBy      User?       @relation("JobCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  assignments    JobAssignment[]
+  checklistItems JobChecklistItem[]
+  timeEntries    TimeEntry[]
+  inventoryUsages InventoryUsage[]
+  inspections    Inspection[]
+  invoiceLineItems InvoiceLineItem[]
+}
+
+model JobAssignment {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  isLead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, userId])
+}
+
+model JobChecklistItem {
+  id          String    @id @default(cuid())
+  jobId       String
+  job         Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  description String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+}
+
+model TimeEntry {
+  id        String    @id @default(cuid())
+  jobId     String
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  clockIn   DateTime
+  clockOut  DateTime?
+  notes     String?
+}
+
+model InventoryItem {
+  id             String   @id @default(cuid())
+  name           String
+  sku            String?  @unique
+  unit           String   @default("unit")
+  quantityOnHand Float    @default(0)
+  reorderLevel   Float    @default(0)
+  unitCost       Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  usages         InventoryUsage[]
+}
+
+model InventoryUsage {
+  id              String        @id @default(cuid())
+  jobId           String
+  job             Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  quantityUsed    Float
+  createdAt       DateTime      @default(now())
+}
+
+model Inspection {
+  id           String   @id @default(cuid())
+  jobId        String
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  inspectorId  String
+  inspector    User     @relation(fields: [inspectorId], references: [id])
+  overallScore Float?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  items        InspectionItem[]
+}
+
+model InspectionItem {
+  id           String     @id @default(cuid())
+  inspectionId String
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  area         String
+  rating       Int
+  notes        String?
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  clientId      String
+  client        Client        @relation(fields: [clientId], references: [id])
+  status        String        @default("DRAFT") // see InvoiceStatus in src/types/enums.ts
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+  subtotal      Float         @default(0)
+  taxRate       Float         @default(0)
+  taxAmount     Float         @default(0)
+  total         Float         @default(0)
+  amountPaid    Float         @default(0)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  lineItems     InvoiceLineItem[]
+  payments      Payment[]
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  jobId       String?
+  job         Job?     @relation(fields: [jobId], references: [id])
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0)
+  amount      Float    @default(0)
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Float
+  method    String   @default("CARD") // see PaymentMethod in src/types/enums.ts
+  reference String?
+  paidAt    DateTime @default(now())
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  String?
+  createdAt DateTime @default(now())
+}
