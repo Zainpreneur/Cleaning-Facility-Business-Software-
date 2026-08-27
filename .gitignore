@@ -29,3 +29,4 @@ yarn-error.log*
 
 # Vite
 frontend/.vite/
+frontend/tsconfig.tsbuildinfo
